@@ -11,6 +11,7 @@ ModelStrategy = Literal["roc_auc", "pr_auc"]
 
 @dataclass
 class PurchaseModelAdapterConfig:
+    root_dir: Path
     app_dir: Path
     roc_auc_model_path: Path
     pr_auc_model_path: Path
@@ -31,10 +32,12 @@ class PurchaseModelAdapterConfig:
         """
         adapter_dir = Path(__file__).resolve().parent   # app/adapter
         app_dir = adapter_dir.parent                    # app
+        root_dir = adapter_dir.parent.parent
         artifact_dir = app_dir / "artifacts"
 
         return cls(
             app_dir=app_dir,
+            root_dir=root_dir,
             roc_auc_model_path=artifact_dir / "best_balancedrf_pipeline.joblib",
             pr_auc_model_path=artifact_dir / "best_pr_auc_balancedrf.joblib",
         )

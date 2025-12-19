@@ -56,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--train", type=str, default="data/processed/train.csv", help="Path to train.csv")
     p.add_argument("--test", type=str, default="data/processed/test.csv", help="Path to test.csv (optional for eval)")
     p.add_argument("--target", type=str, default="Revenue", help="Target column name")
-    p.add_argument("--out", type=str, default="artifacts/best_pr_auc_balancedrf.joblib", help="Output joblib path")
+    p.add_argument("--out", type=str, default="../app/artifacts/best_pr_auc_balancedrf.joblib", help="Output joblib path")
 
     p.add_argument("--random_state", type=int, default=42, help="Random seed")
     p.add_argument("--no_eval", action="store_true", help="Skip evaluation even if test has label")
