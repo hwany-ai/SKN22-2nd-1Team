@@ -1,0 +1,131 @@
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import List, Literal, Optional
+
+import pandas as pd
+
+from adapters.purchase_model_adapter import (
+    PurchaseModelAdapter,
+    PurchaseModelAdapterConfig,
+    ModelStrategy,
+)
+
+
+RiskBand = Literal["high", "medium", "low"]
+
+
+@dataclass
+class SessionPredictionResult:
+    probability: float
+    risk_band: RiskBand
+    status_label: str
+    compare_text: str
+    reasons: List[str]
+    average_text: str
+
+
+class SessionProbabilityService:
+    def __init__(
+        self,
+        adapter: Optional[PurchaseModelAdapter] = None,
+        global_avg_purchase_prob: float = 0.15,
+        default_strategy: ModelStrategy = "roc_auc",
+    ):
+        self.adapter = adapter or PurchaseModelAdapter(
+            PurchaseModelAdapterConfig.from_default_layout()
+        )
+        self.global_avg_purchase_prob = global_avg_purchase_prob
+        self.default_strategy = default_strategy
+
+    def predict_session(
+        self,
+        session_df: pd.DataFrame,
+        strategy: Optional[ModelStrategy] = None,
+    ) -> SessionPredictionResult:
+        strategy = strategy or self.default_strategy
+        prob = self.adapter.predict_purchase_probability(session_df, strategy=strategy)
+
+        risk_band, status_label = self._get_risk_band_and_label(prob)
+        compare_text = self._build_compare_text(prob, self.global_avg_purchase_prob)
+
+        row = session_df.iloc[0]
+        reasons, avg_text = self._build_explanation(row, prob, self.global_avg_purchase_prob)
+
+        return SessionPredictionResult(
+            probability=prob,
+            risk_band=risk_band,
+            status_label=status_label,
+            compare_text=compare_text,
+            reasons=reasons,
+            average_text=avg_text,
+        )
+
+    def _get_risk_band_and_label(self, prob: float):
+        if prob >= 0.7:
+            return "high", "구매 가능성 높음"
+        elif prob >= 0.4:
+            return "medium", "구매 가능성 중간"
+        else:
+            return "low", "구매 가능성 낮음"
+
+    def _build_compare_text(self, prob: float, avg_prob: float) -> str:
+        if avg_prob <= 0:
+            return "평균 값이 정의되어 있지 않아 비교가 어렵습니다."
+
+        diff_ratio = (prob - avg_prob) / avg_prob * 100
+        if diff_ratio >= 0:
+            return f"이 세션은 평균보다 **{diff_ratio:.1f}% 더 높습니다.**"
+        else:
+            return f"이 세션은 평균보다 **{abs(diff_ratio):.1f}% 더 낮습니다.**"
+
+    def _build_explanation(
+        self,
+        row: pd.Series,
+        prob: float,
+        avg_prob: float,
+    ):
+        reasons: List[str] = []
+
+        product_related = row.get("ProductRelated", None)
+        if product_related is not None:
+            if product_related >= 20:
+                reasons.append("상품 페이지를 많이 조회하고 있어 관심도가 높습니다.")
+            elif product_related <= 3:
+                reasons.append("상품 페이지 조회 수가 적어 아직 탐색 단계일 가능성이 있습니다.")
+
+        page_values = row.get("PageValues", None)
+        if page_values is not None:
+            if page_values >= 50:
+                reasons.append("이미 장바구니/결제 단계 등 높은 가치 페이지에 도달했습니다.")
+            elif page_values == 0:
+                reasons.append("아직 구매 여정의 앞단에 있어 구체적인 구매 신호가 약합니다.")
+
+        exit_rates = row.get("ExitRates", None)
+        if exit_rates is not None:
+            if exit_rates <= 0.2:
+                reasons.append("세션 종료 비율이 낮아 이탈 위험이 비교적 적습니다.")
+            elif exit_rates >= 0.5:
+                reasons.append("세션 종료 비율이 높아 이탈 가능성이 큽니다.")
+
+        visitor_type = row.get("VisitorType", None)
+        if visitor_type == "Returning_Visitor":
+            reasons.append("재방문 고객으로, 사이트 경험이 있어 구매 가능성이 더 높습니다.")
+        elif visitor_type == "New_Visitor":
+            reasons.append("신규 방문자로, 아직 사이트에 익숙하지 않아 구매까지 시간이 걸릴 수 있습니다.")
+
+        weekend = row.get("Weekend", None)
+        if isinstance(weekend, (bool, int)):
+            if bool(weekend):
+                reasons.append("주말 방문 세션으로, 여유 있는 쇼핑 가능성이 있습니다.")
+            else:
+                reasons.append("평일 방문 세션으로, 짧은 탐색 후 이탈할 수도 있습니다.")
+
+        diff = prob - avg_prob
+        if diff >= 0.1:
+            avg_text = f"이 세션의 구매 확률은 전체 평균보다 약 {diff * 100:.1f}%p 높습니다."
+        elif diff <= -0.1:
+            avg_text = f"이 세션의 구매 확률은 전체 평균보다 약 {abs(diff) * 100:.1f}%p 낮습니다."
+        else:
+            avg_text = "이 세션의 구매 확률은 전체 평균과 비슷한 수준입니다."
+
+        return reasons, avg_text
