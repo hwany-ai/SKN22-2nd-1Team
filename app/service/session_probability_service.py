@@ -129,3 +129,21 @@ class SessionProbabilityService:
             avg_text = "이 세션의 구매 확률은 전체 평균과 비슷한 수준입니다."
 
         return reasons, avg_text
+
+    def get_training_data(self) -> pd.DataFrame:
+        """
+        학습에 사용된 원본 데이터를 로드하여 반환합니다.
+        (EDA 및 시각화용)
+        """
+        # Adapter Config에서 root_dir을 가져옴
+        root_dir = self.adapter.config.root_dir
+        data_path = root_dir / "data" / "processed" / "train.csv"
+
+        if not data_path.exists():
+            raise FileNotFoundError(f"Training data not found at: {data_path}")
+
+        df = pd.read_csv(data_path)
+        if "row_id" in df.columns:
+            df = df.drop(columns=["row_id"])
+        
+        return df
