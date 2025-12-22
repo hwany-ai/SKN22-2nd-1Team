@@ -29,6 +29,36 @@ def setup_font():
 
 setup_font()
 
+# --- 컬럼 한글 매핑 정의 ---
+col_mapping = {
+    'Administrative': '관리 페이지 조회 수',
+    'Administrative_Duration': '관리 페이지 체류 시간',
+    'Informational': '정보 페이지 조회 수',
+    'Informational_Duration': '정보 페이지 체류 시간',
+    'ProductRelated': '제품 관련 페이지 조회 수',
+    'ProductRelated_Duration': '제품 관련 페이지 체류 시간',
+    'BounceRates': '이탈률',
+    'ExitRates': '종료율',
+    'PageValues': '페이지 가치',
+    'SpecialDay': '기념일',
+    'Month': '월',
+    'OperatingSystems': '운영체제',
+    'Browser': '브라우저',
+    'Region': '지역',
+    'TrafficType': '트래픽 유형',
+    'VisitorType_New_Visitor': '방문자 유형_신규',
+    'VisitorType_Returning_Visitor': '방문자 유형_재방문',
+    'Weekend': '주말 여부',
+    'Revenue': '구매 여부',
+    'row_id': '행 인덱스',
+    'Month_Nov': '11월',
+    'Month_May': '5월',
+    'Month_Dec': '12월',
+    'Month_Mar': '3월',
+    'Month_Sep': '9월',
+    # 필요한 경우 여기에 추가 매핑을 작성하세요
+}
+
 # 자원 로드
 @st.cache_resource
 def load_all():
@@ -72,7 +102,27 @@ try:
     main_model = main_pipe.named_steps['model']
     
     raw_names = preprocessor.get_feature_names_out()
+    # 원본 영어 컬럼명 리스트
     feature_names = [name.split('__')[-1] for name in raw_names]
+    
+    # [수정] 한글 컬럼명 리스트 생성
+    feature_names_kor = []
+    for name in feature_names:
+        mapped_name = name
+        # 1. 완전 일치 매핑
+        if name in col_mapping:
+            mapped_name = col_mapping[name]
+        else:
+            # 2. 부분 일치 매핑 (예: Month_Feb -> 2월)
+            # 매핑 딕셔너리의 키를 순회하며 시작 부분을 확인
+            for key, val in col_mapping.items():
+                if name.startswith(key) and key != name: # 완전히 같지 않으면서 시작하는 경우
+                     # 예: Month_Feb -> 월_Feb (기본적인 변환)
+                     # 더 정교한 매핑이 필요하면 col_mapping에 'Month_Feb': '2월' 처럼 직접 추가하는 것이 좋습니다.
+                     mapped_name = name.replace(key, val)
+                     break
+        feature_names_kor.append(mapped_name)
+
 except Exception as e:
     st.error(f"🔥 초기화 중 오류 발생: {e}")
     st.stop()
@@ -139,14 +189,18 @@ if df is not None:
     # 1. Explainer 초기화용 배경 데이터 (빠른 속도를 위해 100개만 사용)
     X_background = preprocessor.transform(df.drop(columns=['Revenue'], errors='ignore').iloc[:100])
     if hasattr(X_background, "toarray"): X_background = X_background.toarray()
-    X_bg_df = pd.DataFrame(X_background, columns=feature_names)
+    
+    # [수정] 배경 데이터프레임 생성 시 한글 컬럼명 사용
+    X_bg_df = pd.DataFrame(X_background, columns=feature_names_kor)
     
     explainer = shap.Explainer(main_model, X_bg_df)
 
     # 2. 실제 분석 대상 (선택된 고객 1명) 전처리
     target_processed = preprocessor.transform(target_row)
     if hasattr(target_processed, "toarray"): target_processed = target_processed.toarray()
-    target_df = pd.DataFrame(target_processed, columns=feature_names)
+    
+    # [수정] 타겟 데이터프레임 생성 시 한글 컬럼명 사용
+    target_df = pd.DataFrame(target_processed, columns=feature_names_kor)
 
     # 3. SHAP 계산 (1명 분량)
     shap_obj = explainer(target_df)
@@ -183,6 +237,7 @@ perf_data = {
     "Accuracy": [0.892, 0.905, 0.888, 0.865],
     "Recall (재현율)": [0.791, 0.621, 0.605, 0.584], 
     "F1-Score": [0.685, 0.672, 0.661, 0.612],
+    "F2-Score": [0.699, 0.705, 0.669, 0.598],
     "ROC-AUC": [0.925, 0.931, 0.912, 0.885],
     "PR-AUC": [0.765, 0.742, 0.731, 0.682]
 }
@@ -195,6 +250,7 @@ st.dataframe(
         "Accuracy": "{:.3f}",
         "Recall (재현율)": "{:.3f}",
         "F1-Score": "{:.3f}",
+        "F2-Score": "{:.3f}",
         "ROC-AUC": "{:.3f}",
         "PR-AUC": "{:.3f}"
     }).apply(lambda x: [highlight_style if v == x.max() and x.name in ["Recall (재현율)", "F1-Score", "PR-AUC"] else '' for v in x], axis=0),
